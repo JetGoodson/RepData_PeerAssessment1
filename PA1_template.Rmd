@@ -1,20 +1,180 @@
 # Reproducible Research: Peer Assessment 1
-
+```{r libraries, echo=TRUE}
+library(ggplot2)
+library(scales)
+library(plyr)
+```
 
 ## Loading and preprocessing the data
+1) Load the data
+```{r loadData, echo=TRUE}
+activityDataPreClean <- read.csv(file="activity.csv",header=TRUE,stringsAsFactors=FALSE)
+summary(activityDataPreClean)
+head(activityDataPreClean)
+tail(activityDataPreClean)
+```
 
+2) It looks like the owner of this device wasn't wearing it for the first day; perhaps it was charging. Either way the frequent NAs at the beginning and end need to be removed for the next part of the assessment. However, I will preserve the non-cleaned data in the original data frame for now.
+
+```{r cleanData, echo=TRUE}
+activityData <- activityDataPreClean[complete.cases(activityDataPreClean$steps),]
+summary(activityData)
+head(activityData)
+tail(activityData)
+```
 
 
 ## What is mean total number of steps taken per day?
+The total number of steps taken for each day is:
+```{r totalSteps, echo=TRUE}
+dailyActivity <- aggregate(activityData$steps, by=list(activityData$date),sum)
+colnames(dailyActivity) <- c("date","totalSteps")
+dailyActivity$date <- as.Date(dailyActivity$date)
+print.data.frame(dailyActivity,quote=FALSE)
+```
 
+A histogram of the resulting data:<center>
+```{r totalStepsHist, echo=TRUE,results='asis'}
+plot <- ggplot(dailyActivity, aes(date,weight=totalSteps))
+plot + geom_histogram(binwidth=1) + scale_x_date(labels=date_format("%m/%d")) + xlab("Date") + ylab("Total Number of Steps/Date") +ggtitle("Total Number of Steps Recorded for each Date")
+```
 
+_Figure 1: The total number of steps recorded by the fitness device for each date in the period of the dataset._</center>
 
+The mean value for the total number of steps is:
+```{r meanTotalSteps, echo=TRUE, results='markup'}
+mean(dailyActivity$totalSteps)
+```
+The median value for the total number of steps is:
+```{r medianTotalSteps, echo=TRUE, results='markup'}
+median(dailyActivity$totalSteps)
+```
 ## What is the average daily activity pattern?
+The average (using the mean) number of steps taken for each day is:
+```{r activityPatter, echo=TRUE}
+activityPattern <- aggregate(activityData$steps, by=list(activityData$interval),mean)
+colnames(activityPattern) <- c("interval","meanSteps")
+activityPattern
+```
+A time series of the daily step pattern:<center>
+```{r activityPatternTimeSeries, echo=TRUE,results='asis'}
+plot <- ggplot(activityPattern, aes(x=interval,y=meanSteps))
+plot + geom_line() + xlab("Interval") + ylab("Mean Number of Steps/Interval [5 Minutes]") +ggtitle("Mean Number of Steps for each Five Minute Interval") + scale_x_discrete(breaks = c(0,600,1200,1800,2400), labels=c("0:00", "6:00", "12:00", "18:00","24:00"))
+```
 
+_Figure 2: A time series of the mean step number per five minute interval recorded by the device over the data period._</center>
 
+```{r, mostStepsIntervalCalc, echo=TRUE, results='markup'}
+index <- which.max(activityPattern$meanSteps)
+maxStepsInterval <-  activityPattern$interval[index]
+maxStepsInSingleInterval <- activityPattern$meanSteps[index]
+```
+The interval with the largest mean number of steps is:
+
+```{r, mostStepsInterval, echo=TRUE, results='markup'}
+maxStepsInterval
+```
+
+The mean number of steps in that interval is:
+
+```{r, stepsInMostStepsInterval, echo=TRUE, results='markup'}
+maxStepsInSingleInterval
+```
+This is the peak and so it appears around a quarter after eight in the morning, the wearer of this device takes a morning walk.
 
 ## Imputing missing values
 
+The total number of missing (NA) intervals in the original dataset is:
+```{r naCount, echo=TRUE}
+naCount <- nrow(activityDataPreClean) - nrow(activityData)
+naCount
+```
 
+To fill in the missing data I will use the mean for that interval over the period.
+
+```{r dataCorrection, echo=TRUE}
+calc.mean <- function(x) replace(x, is.na(x), mean(x, na.rm=TRUE))
+activityDataCorrected <- ddply(activityDataPreClean, ~interval, transform, steps = calc.mean(steps))
+head(activityDataPreClean)
+head(arrange(activityDataCorrected,date,interval))
+```
+
+Looks like that worked; the values produced match the values I calculated for the mean in the section above. Now I will plot a histogram of the result and calculate the mean and median.
+
+
+A histogram of the resulting data:<center>
+```{r totalStepsHistCorrected, echo=TRUE,results='asis'}
+dailyActivityCorrected <- aggregate(activityDataCorrected$steps, by=list(activityDataCorrected$date),sum)
+colnames(dailyActivityCorrected) <- c("date","totalSteps")
+dailyActivityCorrected$date <- as.Date(dailyActivityCorrected$date)
+plotCorr <- ggplot(dailyActivityCorrected, aes(date,weight=totalSteps))
+plotCorr + geom_histogram(binwidth=1) + scale_x_date(labels=date_format("%m/%d")) + xlab("Date") + ylab("Total Number of Steps/Date") +ggtitle("Total Number of Steps Recorded for each Date with NA Data Corrected")
+```
+
+_Figure 3: The total number of steps recorded by the fitness device for each date in the period of the dataset, with missing data corrected by inserting the mean for the corresponding five minute interval._</center>
+
+The mean value for the total number of steps is:
+```{r meanTotalStepsCorrected, echo=TRUE, results='markup'}
+mean(dailyActivityCorrected$totalSteps)
+```
+The median value for the total number of steps is:
+```{r medianTotalStepsCorrected, echo=TRUE, results='markup'}
+median(dailyActivityCorrected$totalSteps)
+```
+The mean did not change at all and the median shift by one to a higher value. This is not surprising at all. Adding data points equal to the mean will not shift the mean. Each additional point of value &mu; changes the mean to &mu;'=(n*&mu; + &mu;)/(n+1) which cancels out to &mu;. In the case of the median, more weight was given to the mean in the population of values, so th median was dragged to that value. The median is a robust statistic though, so it would not change greatly.
+
+The difference betwen the plots is also only slight. The NA values only appeared on the first and last days of the data period, which we can see are filled in to the men value. The zero bin near 11/15 actually represents a day on which the user recorded no steps. Perhaps the user left it at home.
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+First I will create a new factor column for the data. The simplest way to do that appears to be to just check if the first letter is an S for Saturday or Sunday.
+
+```{r weekendCalc, echo=TRUE}
+activityDataWeekend <- weekdays(as.Date(activityDataCorrected$date))
+workOrPlay <- function(x){
+x <- ifelse(substr(x,1,1)=="S", "weekend", "weekday")
+  }
+dayType<-workOrPlay(activityDataWeekend)
+```
+
+Now I will look at the head to compare my day names from the date column to my weekday/weekend classification.
+
+```{r checkMath, echo=TRUE}
+head(activityDataWeekend)
+head(dayType)
+
+activityDataWeekdayWeekend <- cbind(activityDataCorrected, dayType)
+
+head(activityDataWeekdayWeekend)
+
+```
+
+Looks pretty good. I have now marked the data as one of two factors, marked as either a weekday or a weekend. I will now split the data into two datasets and plot it.
+
+```{r,weekendWeekdayPlot, echo=TRUE}
+activityDataWeekday <- subset(activityDataWeekdayWeekend,activityDataWeekdayWeekend$dayType=="weekday")
+activityPatternWeekday <- aggregate(activityDataWeekday$steps, by=list(activityDataWeekday$interval),mean)
+colnames(activityPatternWeekday) <- c("interval","meanSteps")
+head(activityPatternWeekday)
+
+activityDataWeekend <- subset(activityDataWeekdayWeekend,activityDataWeekdayWeekend$dayType=="weekend")
+activityPatternWeekend <- aggregate(activityDataWeekend$steps, by=list(activityDataWeekend$interval),mean)
+colnames(activityPatternWeekend) <- c("interval","meanSteps")
+head(activityPatternWeekend)
+```
+
+Graphed below is a time series of the device wearer's activity pattern for weekend days and weekday.<center>
+
+```{r, panelPlot, echo=TRUE}
+plotWeekend <- ggplot(activityPatternWeekend, aes(x=interval,y=meanSteps))
+plotWeekday <- ggplot(activityPatternWeekday, aes(x=interval,y=meanSteps))
+
+plotWeekend + geom_line() + xlab("Interval") + ylab("Mean Number of Steps/Interval [5 Minutes]") +ggtitle("Mean Number of Steps for each Five Minute Interval over Weekend") + scale_x_discrete(breaks = c(0,600,1200,1800,2400), labels=c("0:00", "6:00", "12:00", "18:00","24:00"))  
+plotWeekday + geom_line() + xlab("Interval") + ylab("Mean Number of Steps/Interval [5 Minutes]") +ggtitle("Mean Number of Steps for each Five Minute Interval over Weekday") + scale_x_discrete(breaks = c(0,600,1200,1800,2400), labels=c("0:00", "6:00", "12:00", "18:00","24:00"))
+
+```
+
+_Figure 4: A time series of the mean step number per five minute interval recorded by the device over the data period on weekend days (top) and weekdays (bottom)._</center>
+
+There is an obvious difference in activity level on weekend afternoons and evenings. One can imagine that this is due to the device wearer sitting at a desk for much of the weekday (after a morning walk), but then pursuing activities on the weekend.
+
